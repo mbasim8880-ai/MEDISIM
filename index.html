@@ -167,7 +167,7 @@ canvas { display:block; }
 const MODELS = {
   skeleton: ['default skeleton.glb', 'skeleton_model_2-optimized.glb', null],
   brain:    ['default brain.glb', null, null],
-  eye:      ['default_eye.glb', 'eye_model_2.glb', null],
+  eye:      ['default_eye.glb', 'eye_model_2_glb.glb', null],
   organs:   ['heart -optimized.glb', 'default lungs.glb', null],
   spine:    ['default spine .glb', null, null],
   bodypart: ['default_body_part.glb', null, null],
@@ -176,24 +176,29 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0a1520);
 const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.01, 1000);
 camera.position.set(0, 0, 4);
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.outputEncoding = THREE.sRGBEncoding;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.3;
+renderer.sortObjects = true;
 document.body.appendChild(renderer.domElement);
-scene.add(new THREE.AmbientLight(0xffffff, 0.65));
+scene.add(new THREE.AmbientLight(0xffffff, 0.8));
 const key = new THREE.DirectionalLight(0xffffff, 1.1);
 key.position.set(5, 15, 10); scene.add(key);
-const fill = new THREE.DirectionalLight(0x6699cc, 0.4);
+const fill = new THREE.DirectionalLight(0x6699cc, 0.5);
 fill.position.set(-10, 5, -10); scene.add(fill);
-const rim = new THREE.DirectionalLight(0xffffff, 0.25);
+const rim = new THREE.DirectionalLight(0xffffff, 0.3);
 rim.position.set(0, -10, -15); scene.add(rim);
+const front = new THREE.DirectionalLight(0xffffff, 0.4);
+front.position.set(0, 0, 20); scene.add(front);
+
 let currentModel=null, isDrag=false, prevX=0, prevY=0;
 let currentCat='skeleton', currentIdx=0;
 let zoomDist=4, tp=null, lastPinchDist=null;
 const ZOOM_MIN=0.2, ZOOM_MAX=18, ZOOM_STEP=0.25;
+
 function applyZoom(){camera.position.z=zoomDist;}
 window.addEventListener('wheel',e=>{
   e.preventDefault();
@@ -229,31 +234,47 @@ renderer.domElement.addEventListener('touchmove',e=>{
 });
 renderer.domElement.addEventListener('touchend',()=>{tp=null;lastPinchDist=null;});
 window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
-function loadGLB(filename,isFirst){
-  return new Promise((resolve,reject)=>{
-    if(isFirst)setBar(40,'Loading model...');
-    new THREE.GLTFLoader().load(filename,gltf=>{
-      const model=gltf.scene;
-      const box=new THREE.Box3().setFromObject(model);
-      const center=box.getCenter(new THREE.Vector3());
-      const size=box.getSize(new THREE.Vector3());
-      model.position.sub(center);
-      model.scale.setScalar(2.5/Math.max(size.x,size.y,size.z));
-      // Fix transparency and double side rendering
-      model.traverse(child => {
-        if (child.isMesh) {
-          child.material.side = THREE.DoubleSide;
-          if (child.material.transparent) {
-            child.material.depthWrite = false;
-          }
-        }
-      });
-      resolve(model);
-    },xhr=>{
-      if(isFirst&&xhr.total)setBar(40+(xhr.loaded/xhr.total)*55,'Loading... '+Math.round(xhr.loaded/xhr.total*100)+'%');
-    },reject);
+
+function fixMaterials(model) {
+  model.traverse(child => {
+    if (child.isMesh) {
+      if (Array.isArray(child.material)) {
+        child.material.forEach(mat => applyMatFix(mat));
+      } else {
+        applyMatFix(child.material);
+      }
+    }
   });
 }
+
+function applyMatFix(mat) {
+  mat.side = THREE.DoubleSide;
+  if (mat.transparent || (mat.opacity !== undefined && mat.opacity < 1)) {
+    mat.transparent = true;
+    mat.depthWrite = false;
+    mat.alphaTest = 0.01;
+  }
+  mat.needsUpdate = true;
+}
+
+function loadGLB(filename, isFirst) {
+  return new Promise((resolve, reject) => {
+    if(isFirst) setBar(40,'Loading model...');
+    new THREE.GLTFLoader().load(filename, gltf => {
+      const model = gltf.scene;
+      fixMaterials(model);
+      const box = new THREE.Box3().setFromObject(model);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      model.position.sub(center);
+      model.scale.setScalar(2.5/Math.max(size.x,size.y,size.z));
+      resolve(model);
+    }, xhr => {
+      if(isFirst&&xhr.total) setBar(40+(xhr.loaded/xhr.total)*55,'Loading... '+Math.round(xhr.loaded/xhr.total*100)+'%');
+    }, reject);
+  });
+}
+
 async function showModel(cat,idx,isFirst=false){
   const filename=MODELS[cat][idx];
   if(!filename){
@@ -265,9 +286,9 @@ async function showModel(cat,idx,isFirst=false){
   document.getElementById('no-model').classList.remove('show');
   try{
     const model=await loadGLB(filename,isFirst);
-    if(currentModel)scene.remove(currentModel);
-    scene.add(model);currentModel=model;
-    zoomDist=4;applyZoom();
+    if(currentModel) scene.remove(currentModel);
+    scene.add(model); currentModel=model;
+    zoomDist=4; applyZoom();
     if(isFirst){
       setBar(100,'Ready!');
       await sleep(400);
@@ -276,8 +297,12 @@ async function showModel(cat,idx,isFirst=false){
     } else {
       document.getElementById('switch-overlay').classList.remove('show');
     }
-  }catch(e){console.error(e);document.getElementById('switch-overlay').classList.remove('show');}
+  } catch(e){
+    console.error(e);
+    document.getElementById('switch-overlay').classList.remove('show');
+  }
 }
+
 function switchModel(idx){
   currentIdx=idx;
   document.querySelectorAll('.model-item').forEach((el,i)=>el.classList.toggle('active',i===idx));
@@ -287,7 +312,7 @@ function switchModel(idx){
   showModel(currentCat,idx);
 }
 function switchTab(el,cat,label){
-  currentCat=cat;currentIdx=0;
+  currentCat=cat; currentIdx=0;
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   el.classList.add('active');
   document.querySelectorAll('.model-item').forEach((m,i)=>m.classList.toggle('active',i===0));
