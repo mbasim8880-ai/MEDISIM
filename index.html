@@ -239,6 +239,15 @@ function loadGLB(filename,isFirst){
       const size=box.getSize(new THREE.Vector3());
       model.position.sub(center);
       model.scale.setScalar(2.5/Math.max(size.x,size.y,size.z));
+      // Fix transparency and double side rendering
+      model.traverse(child => {
+        if (child.isMesh) {
+          child.material.side = THREE.DoubleSide;
+          if (child.material.transparent) {
+            child.material.depthWrite = false;
+          }
+        }
+      });
       resolve(model);
     },xhr=>{
       if(isFirst&&xhr.total)setBar(40+(xhr.loaded/xhr.total)*55,'Loading... '+Math.round(xhr.loaded/xhr.total*100)+'%');
