@@ -76,7 +76,7 @@ canvas { display:block; }
 .model-item:last-child { border-bottom:none; }
 .model-item:hover { background:rgba(90,176,240,0.08); color:#a0d0f0; }
 .model-item.active { color:#fff; background:rgba(229,62,62,0.1); }
-.model-dot { width:7px; height:7px; border-radius:50%; background:#e53e3e; opacity:0; flex-shrink:0; transition:opacity 0.2s; }
+.model-dot { width:7px; height:7px; border-radius:50%; background:#e53e3e; opacity:0; flex-shrink:0; }
 .model-item.active .model-dot { opacity:1; }
 .zoom-btns {
   position:fixed; right:16px; top:50%; transform:translateY(-50%);
@@ -89,7 +89,6 @@ canvas { display:block; }
   cursor:pointer; backdrop-filter:blur(10px);
   font-size:22px; color:#5ab0f0; font-weight:900; line-height:1;
   transition:all 0.2s; user-select:none;
-  box-shadow:0 4px 20px rgba(0,0,0,0.4);
 }
 .zoom-btn:hover { border-color:#5ab0f0; color:#fff; }
 .zoom-btn:active { transform:scale(0.9); }
@@ -116,7 +115,7 @@ canvas { display:block; }
 .tab:hover { color:#3a6a8a; }
 .tab.active { color:#fff; border-top-color:#e53e3e; }
 .tab.active .tab-icon { filter:drop-shadow(0 0 6px rgba(229,62,62,0.5)); }
-.tab-icon { font-size:20px; transition:all 0.2s; }
+.tab-icon { font-size:20px; }
 </style>
 </head>
 <body>
@@ -161,9 +160,12 @@ canvas { display:block; }
   <button class="tab" onclick="switchTab(this,'spine','Spine')"><span class="tab-icon">🔗</span>Spine</button>
   <button class="tab" onclick="switchTab(this,'bodypart','Body Part')"><span class="tab-icon">💪</span>Body Part</button>
 </div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
 <script>
+
 const MODELS = {
   skeleton: ['default skeleton.glb', 'skeleton_model_2-optimized.glb', null],
   brain:    ['default brain.glb', null, null],
@@ -172,18 +174,21 @@ const MODELS = {
   spine:    ['default spine .glb', null, null],
   bodypart: ['default_body_part.glb', null, null],
 };
+
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0a1520);
 const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.01, 1000);
 camera.position.set(0, 0, 4);
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.outputEncoding = THREE.sRGBEncoding;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.3;
-renderer.sortObjects = true;
 document.body.appendChild(renderer.domElement);
+
+// Lights
 scene.add(new THREE.AmbientLight(0xffffff, 0.8));
 const key = new THREE.DirectionalLight(0xffffff, 1.1);
 key.position.set(5, 15, 10); scene.add(key);
@@ -194,29 +199,40 @@ rim.position.set(0, -10, -15); scene.add(rim);
 const front = new THREE.DirectionalLight(0xffffff, 0.4);
 front.position.set(0, 0, 20); scene.add(front);
 
+// DRACOLoader setup
+const dracoLoader = new THREE.DRACOLoader();
+dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/draco/');
+
+// GLTFLoader with DRACO
+const gltfLoader = new THREE.GLTFLoader();
+gltfLoader.setDRACOLoader(dracoLoader);
+
 let currentModel=null, isDrag=false, prevX=0, prevY=0;
 let currentCat='skeleton', currentIdx=0;
 let zoomDist=4, tp=null, lastPinchDist=null;
 const ZOOM_MIN=0.2, ZOOM_MAX=18, ZOOM_STEP=0.25;
 
-function applyZoom(){camera.position.z=zoomDist;}
-window.addEventListener('wheel',e=>{
+function applyZoom(){ camera.position.z=zoomDist; }
+
+window.addEventListener('wheel', e=>{
   e.preventDefault();
   zoomDist=Math.max(ZOOM_MIN,Math.min(ZOOM_MAX,zoomDist+e.deltaY*0.005));
   applyZoom();
 },{passive:false});
-document.getElementById('zoom-in').addEventListener('click',()=>{zoomDist=Math.max(ZOOM_MIN,zoomDist-ZOOM_STEP);applyZoom();});
-document.getElementById('zoom-out').addEventListener('click',()=>{zoomDist=Math.min(ZOOM_MAX,zoomDist+ZOOM_STEP);applyZoom();});
-renderer.domElement.addEventListener('mousedown',e=>{isDrag=true;prevX=e.clientX;prevY=e.clientY;});
+document.getElementById('zoom-in').addEventListener('click',()=>{ zoomDist=Math.max(ZOOM_MIN,zoomDist-ZOOM_STEP); applyZoom(); });
+document.getElementById('zoom-out').addEventListener('click',()=>{ zoomDist=Math.min(ZOOM_MAX,zoomDist+ZOOM_STEP); applyZoom(); });
+
+renderer.domElement.addEventListener('mousedown',e=>{ isDrag=true; prevX=e.clientX; prevY=e.clientY; });
 window.addEventListener('mouseup',()=>isDrag=false);
 window.addEventListener('mousemove',e=>{
-  if(!isDrag||!currentModel)return;
+  if(!isDrag||!currentModel) return;
   currentModel.rotation.y+=(e.clientX-prevX)*0.008;
   currentModel.rotation.x+=(e.clientY-prevY)*0.004;
-  prevX=e.clientX;prevY=e.clientY;
+  prevX=e.clientX; prevY=e.clientY;
 });
+
 renderer.domElement.addEventListener('touchstart',e=>{
-  if(e.touches.length===2)lastPinchDist=null;
+  if(e.touches.length===2) lastPinchDist=null;
   else tp={x:e.touches[0].clientX,y:e.touches[0].clientY};
 });
 renderer.domElement.addEventListener('touchmove',e=>{
@@ -224,7 +240,7 @@ renderer.domElement.addEventListener('touchmove',e=>{
     const dx=e.touches[0].clientX-e.touches[1].clientX;
     const dy=e.touches[0].clientY-e.touches[1].clientY;
     const dist=Math.sqrt(dx*dx+dy*dy);
-    if(lastPinchDist!==null){zoomDist=Math.max(ZOOM_MIN,Math.min(ZOOM_MAX,zoomDist+(lastPinchDist-dist)*0.01));applyZoom();}
+    if(lastPinchDist!==null){ zoomDist=Math.max(ZOOM_MIN,Math.min(ZOOM_MAX,zoomDist+(lastPinchDist-dist)*0.01)); applyZoom(); }
     lastPinchDist=dist;
   } else if(e.touches.length===1&&tp&&currentModel){
     currentModel.rotation.y+=(e.touches[0].clientX-tp.x)*0.008;
@@ -232,44 +248,42 @@ renderer.domElement.addEventListener('touchmove',e=>{
     tp={x:e.touches[0].clientX,y:e.touches[0].clientY};
   }
 });
-renderer.domElement.addEventListener('touchend',()=>{tp=null;lastPinchDist=null;});
-window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+renderer.domElement.addEventListener('touchend',()=>{ tp=null; lastPinchDist=null; });
+window.addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
 
-function fixMaterials(model) {
-  model.traverse(child => {
-    if (child.isMesh) {
-      if (Array.isArray(child.material)) {
-        child.material.forEach(mat => applyMatFix(mat));
-      } else {
-        applyMatFix(child.material);
-      }
+function fixMaterials(model){
+  model.traverse(child=>{
+    if(child.isMesh){
+      const mats=Array.isArray(child.material)?child.material:[child.material];
+      mats.forEach(mat=>{
+        mat.side=THREE.DoubleSide;
+        if(mat.transparent||(mat.opacity!==undefined&&mat.opacity<1)){
+          mat.transparent=true;
+          mat.depthWrite=false;
+        }
+        mat.needsUpdate=true;
+      });
     }
   });
 }
 
-function applyMatFix(mat) {
-  mat.side = THREE.DoubleSide;
-  if (mat.transparent || (mat.opacity !== undefined && mat.opacity < 1)) {
-    mat.transparent = true;
-    mat.depthWrite = false;
-    mat.alphaTest = 0.01;
-  }
-  mat.needsUpdate = true;
-}
-
-function loadGLB(filename, isFirst) {
-  return new Promise((resolve, reject) => {
+function loadGLB(filename, isFirst){
+  return new Promise((resolve,reject)=>{
     if(isFirst) setBar(40,'Loading model...');
-    new THREE.GLTFLoader().load(filename, gltf => {
-      const model = gltf.scene;
+    gltfLoader.load(filename, gltf=>{
+      const model=gltf.scene;
       fixMaterials(model);
-      const box = new THREE.Box3().setFromObject(model);
-      const center = box.getCenter(new THREE.Vector3());
-      const size = box.getSize(new THREE.Vector3());
+      const box=new THREE.Box3().setFromObject(model);
+      const center=box.getCenter(new THREE.Vector3());
+      const size=box.getSize(new THREE.Vector3());
       model.position.sub(center);
       model.scale.setScalar(2.5/Math.max(size.x,size.y,size.z));
       resolve(model);
-    }, xhr => {
+    }, xhr=>{
       if(isFirst&&xhr.total) setBar(40+(xhr.loaded/xhr.total)*55,'Loading... '+Math.round(xhr.loaded/xhr.total*100)+'%');
     }, reject);
   });
@@ -278,7 +292,7 @@ function loadGLB(filename, isFirst) {
 async function showModel(cat,idx,isFirst=false){
   const filename=MODELS[cat][idx];
   if(!filename){
-    if(currentModel){scene.remove(currentModel);currentModel=null;}
+    if(currentModel){ scene.remove(currentModel); currentModel=null; }
     document.getElementById('no-model').classList.add('show');
     document.getElementById('switch-overlay').classList.remove('show');
     return;
@@ -322,11 +336,12 @@ function switchTab(el,cat,label){
   document.getElementById('switch-txt').textContent='Loading '+label+'...';
   showModel(cat,0);
 }
-function toggleList(){document.getElementById('model-list').classList.toggle('show');}
-window.addEventListener('click',e=>{if(!e.target.closest('.model-switcher'))document.getElementById('model-list').classList.remove('show');});
-function setBar(pct,txt){document.getElementById('bar').style.width=pct+'%';document.getElementById('load-txt').textContent=txt;}
-function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
-function animate(){requestAnimationFrame(animate);if(currentModel&&!isDrag)currentModel.rotation.y+=0.0015;renderer.render(scene,camera);}
+function toggleList(){ document.getElementById('model-list').classList.toggle('show'); }
+window.addEventListener('click',e=>{ if(!e.target.closest('.model-switcher')) document.getElementById('model-list').classList.remove('show'); });
+function setBar(pct,txt){ document.getElementById('bar').style.width=pct+'%'; document.getElementById('load-txt').textContent=txt; }
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+function animate(){ requestAnimationFrame(animate); if(currentModel&&!isDrag) currentModel.rotation.y+=0.0015; renderer.render(scene,camera); }
+
 setBar(20,'Initializing...');
 showModel('skeleton',0,true).then(()=>animate());
 </script>
